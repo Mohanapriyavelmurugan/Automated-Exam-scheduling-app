@@ -3,14 +3,35 @@ from interfaces.admin import admin_interface
 from interfaces.invigilator import invigilator_interface
 from interfaces.student import student_interface
 import os
-from database.init_db import initialize_db
+from database.init_db import create_connection, initialize_db
+def ensure_admin_user(db_file):
+    """Ensure admin user exists in database"""
+    conn = create_connection(db_file)
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM users WHERE id='AD2279'")
+            if not cur.fetchone():
+                cur.execute(
+                    "INSERT INTO users (id, name, passcode, role) VALUES (?, ?, ?, ?)",
+                    ("AD2279", "Admin", "admin123", "admin")
+                )
+                conn.commit()
+        finally:
+            conn.close()
 
 def main():
-    st.set_page_config(
-        page_title="Exam Scheduling System",
-        layout="wide",
-        page_icon="📚"
-    )
+    st.set_page_config(page_title="Exam Scheduling System", layout="wide")
+    
+    # Database setup
+    db_dir = os.path.join(os.path.dirname(__file__), 'database')
+    os.makedirs(db_dir, exist_ok=True)
+    db_file = os.path.join(db_dir, 'exam_scheduler.db')
+    
+    # Initialize database (force recreation if doesn't exist)
+    initialize_db(db_file)
+    ensure_admin_user(db_file)
+    
 
     # Initialize session state variables
     if 'admin_logged_in' not in st.session_state:
