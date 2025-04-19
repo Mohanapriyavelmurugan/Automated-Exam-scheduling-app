@@ -4,26 +4,85 @@ import pandas as pd
 from datetime import datetime, timedelta
 from database.init_db import create_connection, initialize_db
 from csp.scheduler import ExamScheduler
+import os 
 
+
+def debug_auth(db_file):
+    """Debug function to check database state"""
+    st.subheader("Debug Information")
+    
+    try:
+        # Check if database file exists
+        db_exists = os.path.exists(db_file)
+        st.write(f"Database exists: {db_exists}")
+        st.write(f"Database path: {db_file}")
+        
+        if db_exists:
+            # Check file permissions
+            st.write(f"File readable: {os.access(db_file, os.R_OK)}")
+            st.write(f"File writable: {os.access(db_file, os.W_OK)}")
+            
+            # Check tables and admin user
+            conn = create_connection(db_file)
+            if conn:
+                try:
+                    cur = conn.cursor()
+                    
+                    # Check tables exist
+                    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                    tables = cur.fetchall()
+                    st.write("Tables in database:", [t[0] for t in tables])
+                    
+                    # Check admin user exists
+                    cur.execute("SELECT * FROM users WHERE role='admin'")
+                    admin_users = cur.fetchall()
+                    st.write("Admin users:", admin_users)
+                    
+                    # Verify specific credentials
+                    cur.execute(
+                        "SELECT * FROM users WHERE id=? AND passcode=? AND role='admin'",
+                        ("AD2279", "admin123")
+                    )
+                    exact_match = cur.fetchone()
+                    st.write("Exact credential match:", exact_match)
+                    
+                finally:
+                    conn.close()
+    except Exception as e:
+        st.error(f"Debug error: {str(e)}")
 
 def authenticate_admin(admin_id, passcode, db_file):
-    """Verify admin credentials with case-sensitive check"""
+    """Enhanced authentication with debugging"""
     conn = create_connection(db_file)
-    if conn is not None:
-        try:
-            cur = conn.cursor()
+    if conn is None:
+        st.error("Failed to connect to database")
+        return False
+        
+    try:
+        cur = conn.cursor()
+        # First try exact case-sensitive match
+        cur.execute(
+            "SELECT * FROM users WHERE id=? AND passcode=? AND role='admin'",
+            (admin_id, passcode)
+        )
+        user = cur.fetchone()
+        
+        if user is None:
+            # Try case-insensitive if exact match failed
             cur.execute(
                 "SELECT * FROM users WHERE id=? COLLATE NOCASE AND passcode=? AND role='admin'",
                 (admin_id, passcode)
             )
             user = cur.fetchone()
-            return user is not None
-        except sqlite3.Error as e:
-            st.error(f"Database error: {e}")
-            return False
-        finally:
-            conn.close()
-    return False
+            if user:
+                st.warning("Logged in with case-insensitive match (security warning)")
+        
+        return user is not None
+    except sqlite3.Error as e:
+        st.error(f"Database error: {e}")
+        return False
+    finally:
+        conn.close()
 
 
 def manage_departments(db_file):
@@ -250,6 +309,10 @@ def show_admin_dashboard(db_file):
 def admin_interface(db_file):
     st.title("Admin Portal - Exam Scheduling System")
     
+    # Debug button
+    if st.sidebar.button("Debug Database"):
+        debug_auth(db_file)
+    
     # Login section
     if not st.session_state.get('admin_logged_in', False):
         st.sidebar.header("Admin Login")
@@ -260,9 +323,10 @@ def admin_interface(db_file):
             if authenticate_admin(admin_id, passcode, db_file):
                 st.session_state['admin_logged_in'] = True
                 st.session_state['admin_id'] = admin_id
+                st.success("Login successful!")
                 st.rerun()
             else:
-                st.error("Invalid credentials")
+                st.error("Invalid credentials. Check debug information.")
         return
     
     # Main dashboard after login
