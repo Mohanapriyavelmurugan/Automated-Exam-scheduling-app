@@ -5,15 +5,26 @@ from datetime import datetime, timedelta
 from database.init_db import create_connection, initialize_db
 from csp.scheduler import ExamScheduler
 
+
 def authenticate_admin(admin_id, passcode, db_file):
+    """Verify admin credentials with case-sensitive check"""
     conn = create_connection(db_file)
     if conn is not None:
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM users WHERE id=? AND passcode=? AND role='admin'", (admin_id, passcode))
-        user = cur.fetchone()
-        conn.close()
-        return user is not None
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM users WHERE id=? COLLATE NOCASE AND passcode=? AND role='admin'",
+                (admin_id, passcode)
+            )
+            user = cur.fetchone()
+            return user is not None
+        except sqlite3.Error as e:
+            st.error(f"Database error: {e}")
+            return False
+        finally:
+            conn.close()
     return False
+
 
 def manage_departments(db_file):
     st.subheader("Manage Departments")
@@ -213,45 +224,49 @@ def view_schedule(db_file):
         st.info("No exams scheduled yet")
 
 def show_admin_dashboard(db_file):
-    st.header("Admin Dashboard")
+    st.header(f"Admin Dashboard - Welcome {st.session_state['admin_id']}")
     
     tab1, tab2, tab3, tab4 = st.tabs([
         "Manage Departments",
-        "Manage Invigilators", 
+        "Manage Invigilators",
         "Schedule Exams",
         "View Schedule"
     ])
     
     with tab1:
         manage_departments(db_file)
-    
     with tab2:
         manage_invigilators(db_file)
-    
     with tab3:
         schedule_exams(db_file)
-    
     with tab4:
         view_schedule(db_file)
-
+    
+    # Logout button
+    if st.sidebar.button("Logout"):
+        st.session_state['admin_logged_in'] = False
+        st.rerun()
+        
 def admin_interface(db_file):
     st.title("Admin Portal - Exam Scheduling System")
     
-    # Login
-    st.sidebar.header("Admin Login")
-    admin_id = st.sidebar.text_input("Admin ID")
-    passcode = st.sidebar.text_input("Passcode", type="password")
+    # Login section
+    if not st.session_state.get('admin_logged_in', False):
+        st.sidebar.header("Admin Login")
+        admin_id = st.sidebar.text_input("Admin ID", value="AD2279")
+        passcode = st.sidebar.text_input("Passcode", type="password", value="admin123")
+        
+        if st.sidebar.button("Login"):
+            if authenticate_admin(admin_id, passcode, db_file):
+                st.session_state['admin_logged_in'] = True
+                st.session_state['admin_id'] = admin_id
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
+        return
     
-    if st.sidebar.button("Login"):
-        if authenticate_admin(admin_id, passcode, db_file):
-            st.session_state['admin_logged_in'] = True
-            st.session_state['admin_id'] = admin_id
-            st.success("Logged in successfully!")
-        else:
-            st.error("Invalid credentials")
-    
-    if st.session_state.get('admin_logged_in', False):
-        show_admin_dashboard(db_file)
+    # Main dashboard after login
+    show_admin_dashboard(db_file)
 
 def show_admin_dashboard(db_file):
     st.header("Admin Dashboard")
